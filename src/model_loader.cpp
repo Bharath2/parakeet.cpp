@@ -345,7 +345,64 @@ bool ModelLoader::parse_config(const KvView& kv){
             return false;
         }
     }
-    if(cfg_.att_context_style != "regular"){
+    // Unified checkpoints (chunked_limited_with_rc) read their own block and never
+    // enable streaming.present: the C-API and the CLI refuse them for stream_*.
+    if(cfg_.att_context_style == "chunked_limited_with_rc"){
+        UnifiedCfg& u = cfg_.unified;
+        // gguf_get_val_* aborts on a type mismatch, so check each key's type first
+        // and return a load error instead.
+        const struct { const char* key; enum gguf_type type; } expect[] = {
+            {"parakeet.unified.present", GGUF_TYPE_BOOL},
+            {"parakeet.unified.valid_length", GGUF_TYPE_BOOL},
+            {"parakeet.unified.default_preset", GGUF_TYPE_UINT32},
+            {"parakeet.unified.presets", GGUF_TYPE_ARRAY},
+            {"parakeet.encoder.conv_context_style", GGUF_TYPE_STRING},
+        };
+        for(const auto& e : expect){
+            const int64_t id = kv.find(e.key);
+            if(id >= 0 && gguf_get_kv_type(kv.g, id) != e.type){
+                PK_LOG("invalid unified GGUF: %s has the wrong type", e.key);
+                return false;
+            }
+        }
+        // kv_i32_arr reads the element type, so the array's element type is
+        // checked above only when the key is an array. Check the element type here too.
+        {
+            const int64_t id = kv.find("parakeet.unified.presets");
+            if(id >= 0 && gguf_get_arr_type(kv.g, id) != GGUF_TYPE_INT32){
+                PK_LOG("invalid unified GGUF: parakeet.unified.presets must hold INT32 values");
+                return false;
+            }
+        }
+        u.present = kv_bool(kv, "parakeet.unified.present", false);
+        if(!u.present){
+            PK_LOG("invalid unified GGUF: att_context_style is chunked_limited_with_rc but "
+                   "parakeet.unified.present is not set");
+            return false;
+        }
+        u.conv_context_style = kv_str(kv, "parakeet.encoder.conv_context_style", "regular");
+        u.presets = kv_i32_arr(kv, "parakeet.unified.presets");
+        u.default_preset = kv_u32(kv, "parakeet.unified.default_preset", 0);
+        u.valid_length = kv_bool(kv, "parakeet.unified.valid_length", false);
+        if(u.presets.empty() || u.presets.size() % 3 != 0){
+            PK_LOG("invalid unified GGUF: parakeet.unified.presets must be a non-empty list of [L,C,R] triples (got %zu values)",
+                   u.presets.size());
+            return false;
+        }
+        for(uint32_t i = 0; i < u.num_presets(); ++i){
+            const int32_t L = u.presets[3*i], C = u.presets[3*i+1], R = u.presets[3*i+2];
+            if(L < 0 || C < 1 || R < 0){
+                PK_LOG("invalid unified GGUF: preset %u is [%d,%d,%d] (need L >= 0, C >= 1, R >= 0)",
+                       (unsigned)i, (int)L, (int)C, (int)R);
+                return false;
+            }
+        }
+        if(u.default_preset >= u.num_presets()){
+            PK_LOG("invalid unified GGUF: default preset %u is out of range (%u presets)",
+                   (unsigned)u.default_preset, (unsigned)u.num_presets());
+            return false;
+        }
+    } else if(cfg_.att_context_style != "regular"){
         StreamingCfg& s = cfg_.streaming;
         s.chunk_size = kv_i32_arr(kv, "parakeet.streaming.chunk_size");
         s.shift_size = kv_i32_arr(kv, "parakeet.streaming.shift_size");

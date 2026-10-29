@@ -84,6 +84,9 @@ pk_add_test(test_transcribe_ctc)
 pk_add_test(test_transcribe_rnnt)
 pk_add_test(test_transcribe_eou)
 pk_add_test(test_transcribe_nemotron)
+pk_add_test(test_unified_offline)
+pk_add_test(test_unified_load_negative)
+pk_add_test(test_unified_synthetic)  # CPU-only, no checkpoint: runs everywhere
 pk_add_test(test_transcribe_vad)
 pk_add_test(test_vad_batched)
 pk_add_test(test_streaming_decode)
@@ -207,6 +210,9 @@ set_tests_properties(test_model_loader test_mel test_mel_gpu test_subsampling te
                      PROPERTIES LABELS "model")
 set_tests_properties(test_ternary_model test_ternary_long test_fivevalue_model test_fivevalue_gpu test_decoder_reuse test_transcribe_vad test_vad_batched test_vad_head test_model_loader_ternary
                      test_ternary_load_negative test_capi_vad PROPERTIES LABELS "model")
+# Unified (chunked_limited_with_rc) checkpoint: offline parity and loader gate.
+set_tests_properties(test_unified_offline test_unified_load_negative
+                     PROPERTIES LABELS "model" WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 # These tests read fixtures/baselines via paths relative to the project root.
 set_tests_properties(test_mel test_mel_gpu test_subsampling test_subsampling_batch test_subsampling_batch_causal test_relpos_attention test_relpos_attention_batch test_conformer test_conformer_batch
                      test_conv_eou test_encoder test_encoder_batch test_encoder_batch_local test_encoder_eou test_streaming_encoder
@@ -235,6 +241,9 @@ find_program(PARAKEET_PY NAMES python3 HINTS ${CMAKE_SOURCE_DIR}/.venv/bin)
 if(PARAKEET_PY)
   add_test(NAME check_convert COMMAND ${PARAKEET_PY} ${CMAKE_SOURCE_DIR}/tests/python/check_convert.py)
   set_tests_properties(check_convert PROPERTIES SKIP_RETURN_CODE 77 LABELS "model")
+
+  # CPU-only: the unified metadata writer, with no NeMo and no checkpoint (runs in CI).
+  add_test(NAME check_unified_kvs COMMAND ${PARAKEET_PY} ${CMAKE_SOURCE_DIR}/tests/python/check_unified_kvs.py)
 
   add_test(NAME check_baseline COMMAND ${PARAKEET_PY} ${CMAKE_SOURCE_DIR}/tests/python/check_baseline.py)
   set_tests_properties(check_baseline PROPERTIES SKIP_RETURN_CODE 77 LABELS "model")
